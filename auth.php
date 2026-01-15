@@ -19,8 +19,8 @@
  *
  * Provides authentication using KIPMI wallet and Verifiable Credentials (OIDC4VP).
  * This plugin enables users to authenticate by scanning a QR code with their KIPMI
- * wallet application, which presents verifiable credentials to an external authentication
- * backend service.
+ * wallet application, which presents verifiable credentials directly to the VP Verifier
+ * service via webhook callbacks.
  *
  * @package    auth_kipmi
  * @copyright  2025 Tinqin
@@ -74,13 +74,13 @@ class auth_plugin_kipmi extends auth_plugin_base {
     /**
      * Checks if the plugin is properly configured.
      *
-     * The plugin is considered configured if the backend URL setting
+     * The plugin is considered configured if the VP Verifier URL setting
      * has been set by an administrator.
      *
-     * @return bool True if backend_url is configured, false otherwise
+     * @return bool True if vp_verifier_url is configured, false otherwise
      */
     public function is_configured() {
-        return !empty($this->config->backend_url);
+        return !empty($this->config->vp_verifier_url);
     }
 
     /**

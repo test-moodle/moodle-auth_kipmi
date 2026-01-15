@@ -18,7 +18,7 @@
  * Admin settings for the KIPMI Wallet authentication plugin.
  *
  * This file defines the configuration settings available to administrators
- * for managing the KIPMI wallet authentication plugin, including backend URL,
+ * for managing the KIPMI wallet authentication plugin, including VP Verifier URL,
  * button labels, user mapping, auto-creation, and SSL verification options.
  *
  * @package    auth_kipmi
@@ -29,12 +29,21 @@
 defined('MOODLE_INTERNAL') || die();
 
 if ($hassiteconfig) {
-    // Backend URL setting
+    // VP Verifier URL setting
     $settings->add(new admin_setting_configtext(
-        'auth_kipmi/backend_url',
-        get_string('backend_url', 'auth_kipmi'),
-        get_string('backend_url_desc', 'auth_kipmi'),
-        '', // No default - must be configured
+        'auth_kipmi/vp_verifier_url',
+        get_string('vp_verifier_url', 'auth_kipmi'),
+        get_string('vp_verifier_url_desc', 'auth_kipmi'),
+        'https://api.be-ys.com/vp-verifier/v1', // Default to production endpoint
+        PARAM_URL
+    ));
+
+    // Moodle base URL setting (for webhook callbacks)
+    $settings->add(new admin_setting_configtext(
+        'auth_kipmi/moodle_base_url',
+        get_string('moodle_base_url', 'auth_kipmi'),
+        get_string('moodle_base_url_desc', 'auth_kipmi'),
+        $CFG->wwwroot, // Default to current installation
         PARAM_URL
     ));
 
@@ -74,6 +83,33 @@ if ($hassiteconfig) {
         get_string('ssl_verify', 'auth_kipmi'),
         get_string('ssl_verify_desc', 'auth_kipmi'),
         1
+    ));
+
+    // Credential name setting
+    $settings->add(new admin_setting_configtext(
+        'auth_kipmi/credential_name',
+        get_string('credential_name', 'auth_kipmi'),
+        get_string('credential_name_desc', 'auth_kipmi'),
+        'StudentStatusCredential',
+        PARAM_TEXT
+    ));
+
+    // Required fields setting
+    $settings->add(new admin_setting_configtextarea(
+        'auth_kipmi/required_fields',
+        get_string('required_fields', 'auth_kipmi'),
+        get_string('required_fields_desc', 'auth_kipmi'),
+        "given_name\nfamily_name\nstudentId\nemail",
+        PARAM_TEXT
+    ));
+
+    // User identifier field setting
+    $settings->add(new admin_setting_configtext(
+        'auth_kipmi/user_id_field',
+        get_string('user_id_field', 'auth_kipmi'),
+        get_string('user_id_field_desc', 'auth_kipmi'),
+        'studentId',
+        PARAM_ALPHANUMEXT
     ));
 
     // Default first name setting

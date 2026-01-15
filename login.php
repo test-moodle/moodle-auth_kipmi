@@ -49,19 +49,20 @@ $SESSION->auth_kipmi = (object)[
     'starttime' => time(),
 ];
 
-// Get backend URL from configuration
-$backendurl = get_config('auth_kipmi', 'backend_url');
+// Get VP Verifier URL from configuration
+$verifierurl = get_config('auth_kipmi', 'vp_verifier_url');
+$moodlebaseurl = get_config('auth_kipmi', 'moodle_base_url') ?: $CFG->wwwroot;
 
-// Debug: Log what we got
-debugging('KIPMI backend_url from get_config: ' . var_export($backendurl, true), DEBUG_DEVELOPER);
-debugging('KIPMI all config: ' . var_export(get_config('auth_kipmi'), true), DEBUG_DEVELOPER);
-
-if (empty($backendurl)) {
-    throw new \moodle_exception('Backend URL not configured. Please configure the KIPMI authentication plugin.');
+if (empty($verifierurl)) {
+    throw new \moodle_exception('vp_verifier_not_configured', 'auth_kipmi');
 }
+
 $sslverify = get_config('auth_kipmi', 'ssl_verify');
 
-// Call authentication-be to initialize session and get QR code
+// Construct callback URL for VP Verifier webhook
+$callbackurl = $moodlebaseurl . '/auth/kipmi/vp_callback.php?sessionid=' . urlencode($sessionid);
+
+// Call VP Verifier to initialize authentication request and get QR code URL
 // Respect SSL verification setting (default: enabled)
 if ($sslverify) {
     // SSL verification enabled - use secure connection
@@ -72,21 +73,93 @@ if ($sslverify) {
 }
 
 $curl = new curl($curloptions);
-$payload = json_encode(['sessionId' => $sessionid], JSON_UNESCAPED_SLASHES);
-$options = [
-    'CURLOPT_HTTPHEADER' => ['Content-Type: application/json'],
-    'CURLOPT_TIMEOUT' => 10,
+
+// Get credential configuration from settings.
+$credentialname = get_config('auth_kipmi', 'credential_name') ?: 'StudentStatusCredential';
+$requiredfieldsraw = get_config('auth_kipmi', 'required_fields') ?: "given_name\nfamily_name\nstudentId\nemail";
+
+// Parse required fields (one per line, trim whitespace).
+$requiredfields = array_filter(array_map('trim', explode("\n", $requiredfieldsraw)));
+
+// Build constraint fields dynamically.
+$constraintfields = [];
+$destinations = [];
+
+foreach ($requiredfields as $field) {
+    $constraintfields[] = [
+        'path' => ['$.vc.credentialSubject.' . $field],
+        'id' => $field,
+    ];
+    $destinations[$field] = '$.' . $field;
+}
+
+// Add VC type constraint with filter.
+$constraintfields[] = [
+    'path' => ['$.vc.type'],
+    'id' => $credentialname,
+    'filter' => [
+        'type' => 'string',
+        'pattern' => $credentialname,
+    ],
 ];
 
-$response = $curl->post($backendurl . '/api/sessions', $payload, $options);
-$data = json_decode($response, true);
+$payload = json_encode([
+    'credential_type' => 'any',
+    'callback_url' => $callbackurl,
+    'constraints' => [
+        'fields' => $constraintfields,
+    ],
+    'destinations' => $destinations,
+], JSON_UNESCAPED_SLASHES);
 
-if (!$response || $data === null || empty($data['url'])) {
-    debugging('KIPMI auth init failed: http=' . $curl->info['http_code'] . ' error=' . $curl->error, DEBUG_DEVELOPER);
+// Debug: Show what we're about to send
+debugging('=== REQUEST DEBUG ===', DEBUG_DEVELOPER);
+debugging('URL: ' . $verifierurl . '/authorization-request?presentation-type=presentation-exchange', DEBUG_DEVELOPER);
+debugging('Payload: ' . $payload, DEBUG_DEVELOPER);
+debugging('Payload length: ' . strlen($payload) . ' bytes', DEBUG_DEVELOPER);
+
+// Use native PHP cURL to avoid Moodle's curl class issues
+$ch = curl_init($verifierurl . '/authorization-request?presentation-type=presentation-exchange');
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Content-Type: application/json',
+    'Accept: text/plain',
+    'Content-Length: ' . strlen($payload),
+]);
+
+// Respect SSL verification setting
+if (!$sslverify) {
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+}
+
+$response = curl_exec($ch);
+$httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$curlerror = curl_error($ch);
+curl_close($ch);
+
+// Debug: Show what we received
+debugging('=== RESPONSE DEBUG ===', DEBUG_DEVELOPER);
+debugging('HTTP Status: ' . $httpcode, DEBUG_DEVELOPER);
+debugging('Response: ' . $response, DEBUG_DEVELOPER);
+debugging('cURL Error: ' . $curlerror, DEBUG_DEVELOPER);
+
+// VP Verifier returns the openid4vp:// URL directly as a string (not JSON)
+if (!$response || empty($response)) {
+    debugging('VP Verifier init failed: http=' . $httpcode . ' error=' . $curlerror, DEBUG_DEVELOPER);
     throw new \moodle_exception('auth_init_failed', 'auth_kipmi');
 }
 
-$qrurl = $data['url'];
+$qrurl = trim($response);
+
+// Validate it's an openid4vp URL
+if (strpos($qrurl, 'openid4vp://') !== 0) {
+    debugging('Invalid VP Verifier response: ' . substr($response, 0, 100), DEBUG_DEVELOPER);
+    throw new \moodle_exception('auth_init_failed', 'auth_kipmi');
+}
 
 // Set up page
 $PAGE->set_url(new moodle_url('/auth/kipmi/login.php', ['wantsurl' => $wantsurl, 'sesskey' => sesskey()]));
@@ -166,10 +239,13 @@ $js = <<<JAVASCRIPT
             method: "GET"
         })
         .then(function(response) {
+            console.log('Status response:', response.status);
             return response.json();
         })
         .then(function(data) {
+            console.log('Status data:', data);
             if (data && data.status === 'success') {
+                console.log('SUCCESS - submitting form to callback');
                 polling = false;
 
                 // Submit to callback

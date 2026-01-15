@@ -53,47 +53,19 @@ if (
     throw new \moodle_exception('invalid_state', 'auth_kipmi');
 }
 
-// Get backend URL from configuration
-$backendurl = get_config('auth_kipmi', 'backend_url');
-if (empty($backendurl)) {
-    throw new \moodle_exception('Backend URL not configured. Please configure the KIPMI authentication plugin.');
-}
-$sslverify = get_config('auth_kipmi', 'ssl_verify');
-
-// Get final session status from authentication-be
-// Respect SSL verification setting (default: enabled)
-if ($sslverify) {
-    // SSL verification enabled - use secure connection
-    $curloptions = [];
-} else {
-    // SSL verification disabled (for development only)
-    $curloptions = ['ignoresecurity' => true];
-}
-
-$curl = new curl($curloptions);
-$statusendpoint = $backendurl . '/api/sessions/' . rawurlencode($sessionid);
-$response = $curl->get($statusendpoint);
-$data = json_decode($response, true);
-
-if (empty($data) || $data['status'] !== 'success') {
+// Read credentials from session (populated by status.php after VP Verifier callback)
+if (empty($SESSION->auth_kipmi->credentials) || $SESSION->auth_kipmi->vp_status !== 'SUCCESS') {
     throw new \moodle_exception('verification_failed', 'auth_kipmi');
 }
 
-// Extract attributes - they may be nested under 'attributes' key or sessionId key
-$attributes = $data;
-if (isset($data['attributes']) && is_array($data['attributes'])) {
-    // Attributes are nested under 'attributes' key (standard format)
-    $attributes = $data['attributes'];
-} else if (isset($data[$sessionid]) && is_array($data[$sessionid])) {
-    // Attributes are nested under sessionId key (alternative format)
-    $attributes = $data[$sessionid];
-}
+$attributes = $SESSION->auth_kipmi->credentials;
 
-// Extract user identifier - personal_administrative_number is the key attribute
-$userid = $attributes['personal_administrative_number'] ?? null;
+// Extract user identifier from configurable field.
+$useridfield = get_config('auth_kipmi', 'user_id_field') ?: 'studentId';
+$userid = $attributes[$useridfield] ?? null;
 
 if (empty($userid)) {
-    debugging('Session data structure: ' . json_encode($data), DEBUG_DEVELOPER);
+    debugging('User ID field: ' . $useridfield, DEBUG_DEVELOPER);
     debugging('Extracted attributes: ' . json_encode($attributes), DEBUG_DEVELOPER);
     throw new \moodle_exception('no_user_identifier', 'auth_kipmi');
 }
@@ -171,9 +143,9 @@ if (!is_siteadmin($user->id) && !empty($wantsurl) && strpos($wantsurl, '/admin/'
     $redirecturl = !empty($wantsurl) ? $wantsurl : $CFG->wwwroot . '/';
 }
 
-// Cleanup: Delete session from authentication-be
-$deleteendpoint = $backendurl . '/api/sessions/' . rawurlencode($sessionid);
-$curl->delete($deleteendpoint);
+// Cleanup: Delete from cache
+$cache = cache::make('auth_kipmi', 'authsessions');
+$cache->delete($sessionid);
 
 // Cleanup: Remove from Moodle session
 unset($SESSION->auth_kipmi);

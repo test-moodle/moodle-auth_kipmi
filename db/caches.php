@@ -15,7 +15,10 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version information for the KIPMI Wallet authentication plugin.
+ * Cache definitions for KIPMI Wallet authentication plugin.
+ *
+ * Defines the cache stores used by the KIPMI authentication plugin to temporarily
+ * store authentication session data received from VP Verifier webhook callbacks.
  *
  * @package    auth_kipmi
  * @copyright  2025 Tinqin
@@ -24,8 +27,14 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'auth_kipmi';
-$plugin->version   = 2026010800;        // YYYYMMDDXX
-$plugin->requires  = 2022041900;        // Moodle 4.0+
-$plugin->release   = '1.0.0';           // Initial release - VP Verifier integration
-$plugin->maturity  = MATURITY_ALPHA;
+$definitions = [
+    // Temporary storage for authentication sessions during VP verification.
+    'authsessions' => [
+        'mode' => cache_store::MODE_APPLICATION,
+        'simplekeys' => false, // Session IDs contain hyphens, so we need complex keys.
+        'simpledata' => false,
+        'ttl' => 3600, // 1 hour - auto-expires old sessions.
+        'staticacceleration' => true,
+        'staticaccelerationsize' => 10,
+    ],
+];

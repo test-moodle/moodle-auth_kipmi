@@ -36,29 +36,42 @@ class provider implements
     // This plugin stores personal data in external systems.
     \core_privacy\local\metadata\provider,
     // This plugin is capable of determining which users have data within it.
-    \core_privacy\local\request\plugin\provider {
+    \core_privacy\local\request\plugin\provider,
+    // This plugin is capable of determining which users have data within a context.
+    \core_privacy\local\request\core_userlist_provider {
     /**
      * Returns metadata about the data stored and shared by this plugin.
      *
      * This method describes:
-     * 1. Personal data sent to the external authentication backend
-     * 2. Data stored in Moodle session during authentication
+     * 1. Personal data sent to the external VP Verifier service
+     * 2. Personal data received from VP Verifier via webhook callbacks
+     * 3. Data stored in Moodle session during authentication
      *
      * @param collection $collection The initialised collection to add items to.
      * @return collection A listing of user data stored through this system.
      */
     public static function get_metadata(collection $collection): collection {
-        // Describe data sent to external authentication backend.
+        // Describe data sent to external VP Verifier service.
         $collection->add_external_location_link(
-            'auth_kipmi_backend',
+            'auth_kipmi_vp_verifier',
             [
-                'sessionid' => 'privacy:metadata:auth_kipmi_backend:sessionid',
-                'personal_administrative_number' => 'privacy:metadata:auth_kipmi_backend:personal_administrative_number',
-                'given_name' => 'privacy:metadata:auth_kipmi_backend:given_name',
-                'family_name' => 'privacy:metadata:auth_kipmi_backend:family_name',
-                'email' => 'privacy:metadata:auth_kipmi_backend:email',
+                'credential_type' => 'privacy:metadata:auth_kipmi_vp_verifier:credential_type',
+                'callback_url' => 'privacy:metadata:auth_kipmi_vp_verifier:callback_url',
+                'requested_attributes' => 'privacy:metadata:auth_kipmi_vp_verifier:requested_attributes',
             ],
-            'privacy:metadata:auth_kipmi_backend'
+            'privacy:metadata:auth_kipmi_vp_verifier'
+        );
+
+        // Describe data received from VP Verifier via webhook callback.
+        $collection->add_external_location_link(
+            'auth_kipmi_vp_callback',
+            [
+                'studentId' => 'privacy:metadata:auth_kipmi_vp_callback:studentId',
+                'given_name' => 'privacy:metadata:auth_kipmi_vp_callback:given_name',
+                'family_name' => 'privacy:metadata:auth_kipmi_vp_callback:family_name',
+                'email' => 'privacy:metadata:auth_kipmi_vp_callback:email',
+            ],
+            'privacy:metadata:auth_kipmi_vp_callback'
         );
 
         // Describe temporary session data stored in Moodle session.

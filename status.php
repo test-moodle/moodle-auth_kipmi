@@ -32,6 +32,9 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+// Define AJAX_SCRIPT before config.php to suppress debug output in response.
+define('AJAX_SCRIPT', true);
+
 require(__DIR__ . '/../../config.php');
 require_once($CFG->libdir . '/filelib.php');
 
@@ -39,43 +42,26 @@ require_sesskey();
 
 $sessionid = required_param('sessionid', PARAM_RAW_TRIMMED);
 
-// Validate that this session exists in Moodle session
+header('Content-Type: application/json');
+
+// Validate that this session exists in Moodle session.
 if (empty($SESSION->auth_kipmi) || $SESSION->auth_kipmi->sessionid !== $sessionid) {
-    header('Content-Type: application/json');
     echo json_encode(['status' => 'error', 'message' => 'Invalid session']);
     exit;
 }
 
-// Get backend URL from configuration
-$backendurl = get_config('auth_kipmi', 'backend_url');
-if (empty($backendurl)) {
-    header('Content-Type: application/json');
-    echo json_encode(['status' => 'error', 'message' => 'Backend URL not configured']);
-    exit;
-}
-$sslverify = get_config('auth_kipmi', 'ssl_verify');
+// Check Moodle Cache API for callback data from VP Verifier webhook.
+$cache = cache::make('auth_kipmi', 'authsessions');
+$callbackdata = $cache->get($sessionid);
 
-// Call authentication-be to get session status
-// Respect SSL verification setting (default: enabled)
-if ($sslverify) {
-    // SSL verification enabled - use secure connection
-    $curloptions = [];
+if ($callbackdata !== false) {
+    // Callback received from VP Verifier - store credentials in session for callback.php
+    $SESSION->auth_kipmi->credentials = $callbackdata['result'];
+    $SESSION->auth_kipmi->vp_status = $callbackdata['status'];
+
+    // Return status to frontend (lowercase for consistency)
+    echo json_encode(['status' => strtolower($callbackdata['status'])]);
 } else {
-    // SSL verification disabled (for development only)
-    $curloptions = ['ignoresecurity' => true];
-}
-
-$curl = new curl($curloptions);
-$statusendpoint = $backendurl . '/api/sessions/' . rawurlencode($sessionid);
-$response = $curl->get($statusendpoint);
-
-// Return the response directly to the frontend
-header('Content-Type: application/json');
-
-if ($response === false || empty($response)) {
-    // If backend is unreachable or returns empty, return pending status
+    // No callback yet - still waiting for user to scan QR code
     echo json_encode(['status' => 'pending']);
-} else {
-    // Return the response from authentication-be
-    echo $response;
 }
